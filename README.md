@@ -31,10 +31,10 @@ Set the environment variable `AZURE_AUTH_LOCATION` with the full path for an aut
     git clone https://github.com/Azure-Samples/network-dotnet-manage-vpn-client-connection.git
 
     cd network-dotnet-manage-vpn-client-connection
-
-    dotnet restore
-
-    dotnet run
+  
+    dotnet build
+    
+    bin\Debug\net452\ManageVpnGatewayPoint2SiteConnection.exe
 
 ## More information ##
 
