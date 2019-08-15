@@ -4,27 +4,26 @@ languages:
 - csharp
 products:
 - azure
-services: virtual-network
-platforms: dotnet
-author: yaohaizh
+extensions:
+- services: virtual-network
+- platforms: dotnet
 ---
 
 # Getting started on managing client to virtual network VPN connection using C# #
 
-          Azure Network sample for managing virtual network gateway.
-           - Create a virtual network with subnets
-           - Create virtual network gateway
-           - Update virtual network gateway with Point-to-Site connection configuration
-           - Generate and download VPN client configuration package. Now it can be used to create VPN connection to Azure.
-           - Revoke a client certificate
-         
-           Please note: in order to run this sample, you need to have:
-            - pre-generated root certificate and public key exported to $CERT_PATH file
-               For more details please see https://docs.microsoft.com/en-us/azure/vpn-gateway/vpn-gateway-certificates-point-to-site for PowerShell instructions
-               and https://docs.microsoft.com/en-us/azure/vpn-gateway/vpn-gateway-certificates-point-to-site-makecert for Makecert instructions.
-            - client certificate generated for this root certificate installed on your machine.
-               Please see: https://docs.microsoft.com/en-us/azure/vpn-gateway/point-to-site-how-to-vpn-client-install-azure-cert
-            - thumbprint for client certificate saved to $CLIENT_CERT_THUMBPRINT
+ Azure Network sample for managing virtual network gateway.
+  - Create a virtual network with subnets
+  - Create virtual network gateway
+  - Update virtual network gateway with Point-to-Site connection configuration
+  - Generate and download VPN client configuration package. Now it can be used to create VPN connection to Azure.
+  - Revoke a client certificate
+  Please note: in order to run this sample, you need to have:
+   - pre-generated root certificate and public key exported to $CERT_PATH file
+      For more details please see https://docs.microsoft.com/en-us/azure/vpn-gateway/vpn-gateway-certificates-point-to-site for PowerShell instructions
+      and https://docs.microsoft.com/en-us/azure/vpn-gateway/vpn-gateway-certificates-point-to-site-makecert for Makecert instructions.
+   - client certificate generated for this root certificate installed on your machine.
+      Please see: https://docs.microsoft.com/en-us/azure/vpn-gateway/point-to-site-how-to-vpn-client-install-azure-cert
+   - thumbprint for client certificate saved to $CLIENT_CERT_THUMBPRINT
 
 
 ## Running this Sample ##
