@@ -7,6 +7,7 @@ products:
 extensions:
 - services: virtual-network
 - platforms: dotnet
+description: "Azure Network sample for managing virtual network gateway."
 ---
 
 # Getting started on managing client to virtual network VPN connection using C# #
