@@ -1,20 +1,20 @@
 ﻿// Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
-using System;
-using System.IO;
-using Microsoft.Azure.Management.Fluent;
-using Microsoft.Azure.Management.Network.Fluent;
-using Microsoft.Azure.Management.Network.Fluent.Models;
-using Microsoft.Azure.Management.ResourceManager.Fluent;
-using Microsoft.Azure.Management.ResourceManager.Fluent.Core;
-using Microsoft.Azure.Management.Samples.Common;
+using Azure;
+using Azure.Core;
+using Azure.Identity;
+using Azure.ResourceManager.Samples.Common;
+using Azure.ResourceManager.Resources;
+using Azure.ResourceManager;
+using Azure.ResourceManager.Network;
+using Azure.ResourceManager.Network.Models;
 
 namespace ManageVpnGatewayPoint2SiteConnection
 {
     public class Program
     {
-        private static readonly Region region = Region.USWestCentral;
+        private static ResourceIdentifier? _resourceGroupId = null;
 
         /**
          * Azure Network sample for managing virtual network gateway.
@@ -32,43 +32,91 @@ namespace ManageVpnGatewayPoint2SiteConnection
          *      Please see: https://docs.microsoft.com/en-us/azure/vpn-gateway/point-to-site-how-to-vpn-client-install-azure-cert
          *   - thumbprint for client certificate saved to $CLIENT_CERT_THUMBPRINT
          */
-        public static void RunSample(IAzure azure)
+        public static async Task RunSample(ArmClient client)
         {
-            string rgName = SdkContext.RandomResourceName("rgNEMV", 24);
-            string vnetName = SdkContext.RandomResourceName("vnet", 20);
-            string vpnGatewayName = SdkContext.RandomResourceName("vngw", 20);
+            string rgName = Utilities.CreateRandomName("NetworkSampleRG");
+            string vnetName = Utilities.CreateRandomName("vnet");
+            string pipName = Utilities.CreateRandomName("pip");
+            string vpnGatewayName = Utilities.CreateRandomName("vngw");
             string certPath = Environment.GetEnvironmentVariable("CERT_PATH");
             string clientCertThumbprint = Environment.GetEnvironmentVariable("CLIENT_CERT_THUMBPRINT");
 
             try
             {
+                // Get default subscription
+                SubscriptionResource subscription = await client.GetDefaultSubscriptionAsync();
+
+                // Create a resource group in the EastUS region
+                Utilities.Log($"Creating resource group...");
+                ArmOperation<ResourceGroupResource> rgLro = await subscription.GetResourceGroups().CreateOrUpdateAsync(WaitUntil.Completed, rgName, new ResourceGroupData(AzureLocation.EastUS));
+                ResourceGroupResource resourceGroup = rgLro.Value;
+                _resourceGroupId = resourceGroup.Id;
+                Utilities.Log("Created a resource group with name: " + resourceGroup.Data.Name);
+
                 //============================================================
                 // Create virtual network with address spaces 192.168.0.0/16 and 10.254.0.0/16 and 3 subnets
                 Utilities.Log("Creating virtual network...");
-                INetwork network = azure.Networks.Define(vnetName)
-                    .WithRegion(region)
-                    .WithNewResourceGroup(rgName)
-                    .WithAddressSpace("192.168.0.0/16")
-                    .WithAddressSpace("10.254.0.0/16")
-                    .WithSubnet("GatewaySubnet", "192.168.200.0/24")
-                    .WithSubnet("FrontEnd", "192.168.1.0/24")
-                    .WithSubnet("BackEnd", "10.254.1.0/24")
-                    .Create();
-                Utilities.Log("Created network");
-                // Print the virtual network
-                Utilities.Log(network);
+                VirtualNetworkData vnetInput = new VirtualNetworkData()
+                {
+                    Location = resourceGroup.Data.Location,
+                    AddressPrefixes = { "192.168.0.0/16", "10.254.0.0/16" },
+                    Subnets =
+                    {
+                        new SubnetData() { AddressPrefix = "192.168.200.0/24", Name = "GatewaySubnet" },
+                        new SubnetData() { AddressPrefix = "192.168.1.0/24", Name = "FrontEnd" },
+                        new SubnetData() { AddressPrefix = "10.254.1.0/24", Name = "BackEnd" }
+                    },
+                };
+                var vnetLro = await resourceGroup.GetVirtualNetworks().CreateOrUpdateAsync(WaitUntil.Completed, vnetName, vnetInput);
+                VirtualNetworkResource vnet = vnetLro.Value;
+                Utilities.Log($"Created a virtual network: {vnet.Data.Name}");
+
+                //    .WithAddressSpace("192.168.0.0/16")
+                //    .WithAddressSpace("10.254.0.0/16")
+                //    .WithSubnet("GatewaySubnet", "192.168.200.0/24")
+                //    .WithSubnet("FrontEnd", "192.168.1.0/24")
+                //    .WithSubnet("BackEnd", "10.254.1.0/24")
 
                 //============================================================
-                // Create virtual network gateway
+                // Create public ip for virtual network gateway
+                var pip = await Utilities.CreatePublicIP(resourceGroup, pipName);
+
+                // Create VPN gateway
                 Utilities.Log("Creating virtual network gateway...");
-                IVirtualNetworkGateway vngw1 = azure.VirtualNetworkGateways.Define(vpnGatewayName)
-                    .WithRegion(region)
-                    .WithExistingResourceGroup(rgName)
-                    .WithExistingNetwork(network)
-                    .WithRouteBasedVpn()
-                    .WithSku(VirtualNetworkGatewaySkuName.VpnGw1)
-                    .Create();
-                Utilities.Log("Created virtual network gateway");
+                VirtualNetworkGatewayData vpnGatewayInput = new VirtualNetworkGatewayData()
+                {
+                    Location = resourceGroup.Data.Location,
+                    Sku = new VirtualNetworkGatewaySku()
+                    {
+                        Name = VirtualNetworkGatewaySkuName.Basic,
+                        Tier = VirtualNetworkGatewaySkuTier.Basic
+                    },
+                    Tags = { { "key", "value" } },
+                    EnableBgp = false,
+                    GatewayType = VirtualNetworkGatewayType.Vpn,
+                    VpnType = VpnType.RouteBased,
+                    IPConfigurations =
+                    {
+                        new VirtualNetworkGatewayIPConfiguration()
+                        {
+                            Name = Utilities.CreateRandomName("config"),
+                            PrivateIPAllocationMethod = NetworkIPAllocationMethod.Dynamic,
+                            PublicIPAddressId  = pip.Data.Id,
+                            SubnetId = vnet.Data.Subnets.First(item => item.Name == "GatewaySubnet").Id,
+                        }
+                    }
+                };
+                var vpnGatewayLro = await resourceGroup.GetVirtualNetworkGateways().CreateOrUpdateAsync(WaitUntil.Completed, vpnGatewayName, vpnGatewayInput);
+                VirtualNetworkGatewayResource vpnGateway = vpnGatewayLro.Value;
+                Utilities.Log($"Created virtual network gateway: {vpnGateway.Data.Name}");
+
+                //IVirtualNetworkGateway vngw1 = azure.VirtualNetworkGateways.Define(vpnGatewayName)
+                //    .WithRegion(region)
+                //    .WithExistingResourceGroup(rgName)
+                //    .WithExistingNetwork(network)
+                //    .WithRouteBasedVpn()
+                //    .WithSku(VirtualNetworkGatewaySkuName.VpnGw1)
+                //    .Create();
 
                 //============================================================
                 // Update virtual network gateway with Point-to-Site connection configuration
@@ -103,8 +151,12 @@ namespace ManageVpnGatewayPoint2SiteConnection
             {
                 try
                 {
-                    Utilities.Log("Deleting Resource Group: " + rgName);
-                    azure.ResourceGroups.BeginDeleteByName(rgName);
+                    if (_resourceGroupId is not null)
+                    {
+                        Utilities.Log($"Deleting Resource Group...");
+                        await client.GetResourceGroupResource(_resourceGroupId).DeleteAsync(WaitUntil.Completed);
+                        Utilities.Log($"Deleted Resource Group: {_resourceGroupId.Name}");
+                    }
                 }
                 catch (NullReferenceException)
                 {
@@ -117,24 +169,20 @@ namespace ManageVpnGatewayPoint2SiteConnection
             }
         }
 
-        public static void Main(string[] args)
+        public static async Task Main(string[] args)
         {
             try
             {
                 //=================================================================
                 // Authenticate
-                var credentials =
-                    SdkContext.AzureCredentialsFactory.FromFile(
-                        Environment.GetEnvironmentVariable("AZURE_AUTH_LOCATION"));
+                var clientId = Environment.GetEnvironmentVariable("CLIENT_ID");
+                var clientSecret = Environment.GetEnvironmentVariable("CLIENT_SECRET");
+                var tenantId = Environment.GetEnvironmentVariable("TENANT_ID");
+                var subscription = Environment.GetEnvironmentVariable("SUBSCRIPTION_ID");
+                ClientSecretCredential credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+                ArmClient client = new ArmClient(credential, subscription);
 
-                var azure = Azure.Configure()
-                    .WithLogLevel(HttpLoggingDelegatingHandler.Level.Basic)
-                    .Authenticate(credentials)
-                    .WithDefaultSubscription();
-
-                // Print selected subscription
-                Utilities.Log("Selected subscription: " + azure.SubscriptionId);
-                RunSample(azure);
+                await RunSample(client);
             }
             catch (Exception ex)
             {
