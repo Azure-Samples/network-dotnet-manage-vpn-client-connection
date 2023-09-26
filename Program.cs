@@ -71,12 +71,6 @@ namespace ManageVpnGatewayPoint2SiteConnection
                 VirtualNetworkResource vnet = vnetLro.Value;
                 Utilities.Log($"Created a virtual network: {vnet.Data.Name}");
 
-                //    .WithAddressSpace("192.168.0.0/16")
-                //    .WithAddressSpace("10.254.0.0/16")
-                //    .WithSubnet("GatewaySubnet", "192.168.200.0/24")
-                //    .WithSubnet("FrontEnd", "192.168.1.0/24")
-                //    .WithSubnet("BackEnd", "10.254.1.0/24")
-
                 //============================================================
                 // Create public ip for virtual network gateway
                 var pip = await Utilities.CreatePublicIP(resourceGroup, pipName);
@@ -110,29 +104,27 @@ namespace ManageVpnGatewayPoint2SiteConnection
                 VirtualNetworkGatewayResource vpnGateway = vpnGatewayLro.Value;
                 Utilities.Log($"Created virtual network gateway: {vpnGateway.Data.Name}");
 
-                //IVirtualNetworkGateway vngw1 = azure.VirtualNetworkGateways.Define(vpnGatewayName)
-                //    .WithRegion(region)
-                //    .WithExistingResourceGroup(rgName)
-                //    .WithExistingNetwork(network)
-                //    .WithRouteBasedVpn()
-                //    .WithSku(VirtualNetworkGatewaySkuName.VpnGw1)
-                //    .Create();
-
                 //============================================================
                 // Update virtual network gateway with Point-to-Site connection configuration
                 Utilities.Log("Creating Point-to-Site configuration...");
-                vngw1.Update()
-                    .DefinePointToSiteConfiguration()
-                    .WithAddressPool("172.16.201.0/24")
-                    .WithAzureCertificateFromFile("p2scert.cer", new FileInfo(certPath))
-                    .Attach()
-                    .Apply();
+                VpnClientRevokedCertificate sampleClientCert = new VpnClientRevokedCertificate()
+                {
+                    Name = File.ReadAllText(certPath),
+                    Thumbprint = clientCertThumbprint,
+                };
+                VirtualNetworkGatewayData vpnClientUpdateInput = vpnGateway.Data;
+                vpnClientUpdateInput.VpnClientConfiguration.VpnClientAddressPrefixes.Clear();
+                vpnClientUpdateInput.VpnClientConfiguration.VpnClientAddressPrefixes.Add("172.16.201.0/24");
+                vpnClientUpdateInput.VpnClientConfiguration.VpnClientRevokedCertificates.Add(sampleClientCert);
+                vpnGatewayLro = await resourceGroup.GetVirtualNetworkGateways().CreateOrUpdateAsync(WaitUntil.Completed, vpnGatewayName, vpnClientUpdateInput);
+                vpnGateway = vpnGatewayLro.Value;
                 Utilities.Log("Created Point-to-Site configuration");
 
                 //============================================================
                 // Generate and download VPN client configuration package. Now it can be used to create VPN connection to Azure.
                 Utilities.Log("Generating VPN profile...");
-                String profile = vngw1.GenerateVpnProfile();
+                ArmOperation<string> profileLro = await vpnGateway.GenerateVpnProfileAsync(WaitUntil.Completed, null);
+                string profile = profileLro.Value;
                 Utilities.Log(String.Format("Profile generation is done. Please download client package at: %s", profile));
 
                 // At this point vpn client package can be downloaded from provided link. Unzip it and run the configuration corresponding to your OS.
@@ -141,10 +133,9 @@ namespace ManageVpnGatewayPoint2SiteConnection
                 //============================================================
                 // Revoke a client certificate. After this command, you will no longer available to connect with the corresponding client certificate.
                 Utilities.Log("Revoking client certificate...");
-                vngw1.Update().UpdatePointToSiteConfiguration()
-                    .WithRevokedCertificate("p2sclientcert.cer", clientCertThumbprint)
-                    .Parent()
-                    .Apply();
+                vpnClientUpdateInput = vpnGateway.Data;
+                vpnClientUpdateInput.VpnClientConfiguration.VpnClientRevokedCertificates.Clear();
+                _ = await resourceGroup.GetVirtualNetworkGateways().CreateOrUpdateAsync(WaitUntil.Completed, vpnGatewayName, vpnClientUpdateInput);
                 Utilities.Log("Revoked client certificate");
             }
             finally
